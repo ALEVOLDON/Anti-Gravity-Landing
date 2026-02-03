@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Anti-Gravity Landing</title>
+    <!-- Подключаем Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Подключаем Matter.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden; /* Скрываем горизонтальный скролл */
+            overflow-y: auto;   /* РАЗРЕШАЕМ вертикальный скролл */
+            background-color: #0f172a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            width: 100vw;
+            /* Разрешаем жесты по умолчанию (скролл), отключаем только при старте скриптом */
+            touch-action: auto; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .physics-box {
+            position: relative;
+            will-change: transform;
+            user-select: none;
+            z-index: 10;
+        }
+
+        .physics-active {
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            margin: 0 !important;
+            transform-origin: center center;
+        }
+
+        /* Кнопка сброса поверх всего */
+        #reset-btn {
+            z-index: 9999;
+        }
+        
+        /* Кнопка языка */
+        .lang-btn {
+            cursor: pointer;
+            font-weight: bold;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+            padding: 8px 4px; /* Увеличиваем область нажатия для мобильных */
+            touch-action: manipulation; /* Оптимизация тачей */
+        }
+        .lang-btn:hover, .lang-btn.active {
+            opacity: 1;
+            text-decoration: underline;
+            text-decoration-color: #22d3ee; /* cyan-400 */
+        }
+    </style>
+</head>
+<body class="relative">
+
+    <!-- Кнопка сброса (появляется после разрушения) -->
+    <button id="reset-btn" class="fixed top-6 right-6 bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-full shadow-2xl border-2 border-red-400 transition transform hover:scale-105 active:scale-95 hidden opacity-0 transition-opacity duration-1000 z-50">
+        <span data-key="btn_reset">🔄 Вернуть всё как было</span>
+    </button>
+
+    <!-- Навигация -->
+    <nav class="flex justify-between items-center p-4 md:p-6 w-full max-w-6xl mx-auto physics-box" id="nav-bar">
+        <div class="text-xl md:text-2xl font-bold text-cyan-400 tracking-wider border-2 border-cyan-400 p-2 rounded bg-slate-900/50 backdrop-blur">
+            GRAVITY.JS
+        </div>
+        
+        <div class="flex items-center gap-4 bg-slate-900/30 p-2 rounded-lg backdrop-blur-sm">
+            <!-- Ссылки (скрываем на совсем маленьких экранах, оставляем на средних) -->
+            <div class="hidden sm:flex space-x-4 border-r border-slate-600 pr-4">
+                <a href="#" class="hover:text-cyan-300 transition px-2" data-key="nav_about">О нас</a>
+                <a href="#" class="hover:text-cyan-300 transition px-2" data-key="nav_projects">Проекты</a>
+            </div>
+            
+            <!-- Переключатель языка -->
+            <div class="flex items-center space-x-1 text-sm md:text-base font-mono">
+                <span class="lang-btn active" data-lang="ru">RU</span>
+                <span class="text-slate-500">/</span>
+                <span class="lang-btn" data-lang="en">EN</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Главный контент -->
+    <main class="container mx-auto px-4 pt-4 md:pt-10 flex flex-col items-center text-center h-full justify-start md:justify-center">
+        
+        <!-- Заголовок адаптирован под мобильные (text-5xl) -->
+        <h1 class="text-5xl sm:text-6xl md:text-8xl font-black mb-4 md:mb-6 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 physics-box leading-tight py-2 md:py-4 drop-shadow-lg" data-key="hero_title">
+            ПОТЕРЯЙ<br>КОНТРОЛЬ
+        </h1>
+
+        <div class="physics-box mb-8 max-w-2xl bg-slate-800/80 p-4 md:p-6 rounded-xl border border-slate-700 backdrop-blur-md shadow-xl">
+            <p class="text-lg md:text-xl text-slate-200" data-key="hero_desc">
+                Добро пожаловать в веб-пространство, где интерфейс больше не подчиняется правилам верстки. 
+                Всё, что вы видите, подчиняется законам физики.
+            </p>
+        </div>
+
+        <div class="physics-box mb-8 md:mb-16">
+            <button id="start-btn" class="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-3 px-8 md:py-4 md:px-12 rounded-full text-lg md:text-xl shadow-[0_0_30px_rgba(34,211,238,0.4)] transition transform hover:scale-105 active:scale-95 cursor-pointer border-4 border-cyan-600/30">
+                <span data-key="btn_start">ОБРУШИТЬ САЙТ 💥</span>
+            </button>
+        </div>
+
+        <!-- Карточки (на мобильном 1 колонка, на десктопе 3) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 w-full max-w-6xl px-2 md:px-4 pb-20 md:pb-0">
+            <div class="physics-box bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 hover:border-cyan-500 transition shadow-2xl flex flex-col items-center">
+                <div class="text-4xl md:text-5xl mb-3 md:mb-4">⚛️</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-2 md:mb-3 text-white" data-key="card_phys_title">Физика</h3>
+                <p class="text-sm md:text-base text-slate-400" data-key="card_phys_desc">Реалистичная гравитация. Блоки сталкиваются, отскакивают и ложатся руинами.</p>
+            </div>
+
+            <div class="physics-box bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 hover:border-purple-500 transition shadow-2xl flex flex-col items-center">
+                <div class="text-4xl md:text-5xl mb-3 md:mb-4">🖐️</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-2 md:mb-3 text-white" data-key="card_inter_title">Интерактив</h3>
+                <p class="text-sm md:text-base text-slate-400" data-key="card_inter_desc">Хватай обломки сайта мышкой! Перетаскивай, подбрасывай и устраивай хаос.</p>
+            </div>
+
+            <div class="physics-box bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 hover:border-pink-500 transition shadow-2xl flex flex-col items-center">
+                <div class="text-4xl md:text-5xl mb-3 md:mb-4">🏗️</div>
+                <h3 class="text-xl md:text-2xl font-bold mb-2 md:mb-3 text-white" data-key="card_restore_title">Восстановление</h3>
+                <p class="text-sm md:text-base text-slate-400" data-key="card_restore_desc">Нажми кнопку сброса, чтобы мгновенно отстроить интерфейс заново.</p>
+            </div>
+        </div>
+
+    </main>
+    
+    <!-- Футер -->
+    <footer class="fixed bottom-0 w-full p-4 text-center text-slate-500 physics-box bg-slate-900/90 border-t border-slate-800 backdrop-blur-md z-20 text-xs md:text-base">
+        <p class="font-semibold" data-key="footer">© 2026 Anti-Gravity Experiment. Powered by Matter.js</p>
+    </footer>
+
+    <script>
+        // --- ЛОКАЛИЗАЦИЯ ---
+        const translations = {
+            ru: {
+                nav_about: "О нас",
+                nav_projects: "Проекты",
+                hero_title: "ПОТЕРЯЙ<br>КОНТРОЛЬ",
+                hero_desc: "Добро пожаловать в веб-пространство, где интерфейс больше не подчиняется правилам верстки. Всё, что вы видите, подчиняется законам физики.",
+                btn_start: "ОБРУШИТЬ САЙТ 💥",
+                btn_oops: "Упс... 😵‍💫",
+                btn_reset: "🔄 Вернуть всё как было",
+                card_phys_title: "Физика",
+                card_phys_desc: "Реалистичная гравитация. Блоки сталкиваются, отскакивают и ложатся руинами.",
+                card_inter_title: "Интерактив",
+                card_inter_desc: "Хватай обломки сайта мышкой (или пальцем)! Перетаскивай, подбрасывай и устраивай хаос.",
+                card_restore_title: "Восстановление",
+                card_restore_desc: "Нажми кнопку сброса, чтобы мгновенно отстроить интерфейс заново.",
+                footer: "© 2026 Anti-Gravity Experiment. Powered by Matter.js"
+            },
+            en: {
+                nav_about: "About",
+                nav_projects: "Projects",
+                hero_title: "LOSE<br>CONTROL",
+                hero_desc: "Welcome to a web space where the interface no longer obeys layout rules. Everything you see obeys the laws of physics.",
+                btn_start: "CRASH SITE 💥",
+                btn_oops: "Oops... 😵‍💫",
+                btn_reset: "🔄 Restore Everything",
+                card_phys_title: "Physics",
+                card_phys_desc: "Realistic gravity. Blocks collide, bounce, and lie in ruins.",
+                card_inter_title: "Interactive",
+                card_inter_desc: "Grab site debris with your mouse (or finger)! Drag, toss, and create chaos.",
+                card_restore_title: "Restore",
+                card_restore_desc: "Click the reset button to instantly rebuild the interface.",
+                footer: "© 2026 Anti-Gravity Experiment. Powered by Matter.js"
+            }
+        };
+
+        let currentLang = 'ru';
+
+        function setLanguage(lang) {
+            // Если гравитация активна, запрещаем смену языка, чтобы не ломать размеры блоков
+            if (isGravityActive) return;
+
+            currentLang = lang;
+            
+            // Обновляем тексты
+            document.querySelectorAll('[data-key]').forEach(el => {
+                const key = el.getAttribute('data-key');
+                if (translations[lang][key]) {
+                    el.innerHTML = translations[lang][key];
+                }
+            });
+
+            // Обновляем стили кнопок языка
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                const btnLang = btn.getAttribute('data-lang');
+                btn.classList.toggle('active', btnLang === lang);
+            });
+        }
+
+        // --- ФИЗИКА ---
+        const CONFIG = {
+            wallThickness: 200,    
+            floorOffset: 40,       
+            restitution: 0.5,      
+            friction: 0.8,         
+            buttonDelay: 2500      
+        };
+
+        let engine, runner, mouseConstraint;
+        let isGravityActive = false;
+        let bodiesDomPairs = []; 
+        let worldWalls = {}; 
+
+        const initPhysics = () => {
+            const { Engine, Runner, Bodies, Composite, Mouse, MouseConstraint, Events } = Matter;
+
+            engine = Engine.create();
+            const world = engine.world;
+
+            // Стены инициализируем позже, при старте гравитации, чтобы учесть скролл
+            // updateWalls(); 
+
+            const mouse = Mouse.create(document.body);
+            mouseConstraint = MouseConstraint.create(engine, {
+                mouse: mouse,
+                constraint: {
+                    stiffness: 0.1,
+                    render: { visible: false }
+                }
+            });
+            
+            // Разрешаем скролл колесиком (для масштаба если нужно), но блокируем тач-скролл стилями CSS
+            mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
+            mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
+
+            Composite.add(world, mouseConstraint);
+
+            Events.on(engine, 'afterUpdate', () => {
+                bodiesDomPairs.forEach(({ body, element }) => {
+                    const { x, y } = body.position;
+                    const angle = body.angle;
+                    const w = element.offsetWidth;
+                    const h = element.offsetHeight;
+                    
+                    element.style.transform = `translate(${x - w/2}px, ${y - h/2}px) rotate(${angle}rad)`;
+                });
+            });
+
+            runner = Runner.create();
+            Runner.run(runner, engine);
+        };
+
+        const updateWalls = () => {
+            const { Bodies, Composite } = Matter;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const t = CONFIG.wallThickness;
+            const offset = CONFIG.floorOffset;
+            // Учитываем текущую прокрутку страницы!
+            const scrollY = window.scrollY;
+
+            if (worldWalls.ground) {
+                Composite.remove(engine.world, [worldWalls.ground, worldWalls.left, worldWalls.right]);
+            }
+
+            // Пол должен быть внизу ВИДИМОЙ области экрана + scrollY
+            worldWalls.ground = Bodies.rectangle(width / 2, height + scrollY - offset + t / 2, width * 3, t, { isStatic: true });
+            
+            // Стены также сдвигаем по Y на scrollY
+            const wallCenterY = (height / 2) + scrollY;
+            
+            worldWalls.left = Bodies.rectangle(0 - t / 2, wallCenterY, t, height * 3, { isStatic: true });
+            worldWalls.right = Bodies.rectangle(width + t / 2, wallCenterY, t, height * 3, { isStatic: true });
+
+            Composite.add(engine.world, [worldWalls.ground, worldWalls.left, worldWalls.right]);
+        };
+
+        const turnOnGravity = () => {
+            if (isGravityActive) return;
+            isGravityActive = true;
+
+            // Блокируем скролл и тач-действия, чтобы экран не дергался во время игры
+            document.body.style.overflow = 'hidden';
+            document.body.style.touchAction = 'none';
+
+            // Создаем стены вокруг ТЕКУЩЕЙ области просмотра
+            updateWalls();
+
+            const { Bodies, Composite, Body } = Matter;
+            const elements = document.querySelectorAll('.physics-box');
+            const scrollY = window.scrollY;
+
+            elements.forEach(el => {
+                const rect = el.getBoundingClientRect();
+                
+                el.style.width = `${rect.width}px`;
+                el.style.height = `${rect.height}px`;
+
+                // Корректируем координаты Y с учетом скролла
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + scrollY + rect.height / 2;
+
+                const body = Bodies.rectangle(x, y, rect.width, rect.height, {
+                    restitution: CONFIG.restitution,
+                    friction: CONFIG.friction,
+                    density: 0.005
+                });
+
+                Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.15);
+                Body.setVelocity(body, { x: (Math.random() - 0.5) * 5, y: 0 });
+
+                bodiesDomPairs.push({ body, element: el });
+                Composite.add(engine.world, body);
+
+                el.classList.add('physics-active');
+            });
+
+            const startBtn = document.getElementById('start-btn').querySelector('span');
+            // Обновляем текст кнопки через ключ
+            startBtn.innerHTML = translations[currentLang].btn_oops;
+            
+            const startBtnContainer = document.getElementById('start-btn');
+            startBtnContainer.classList.replace('bg-cyan-500', 'bg-pink-600');
+            
+            const btnPair = bodiesDomPairs.find(p => p.element === startBtnContainer);
+            if (btnPair) {
+                Body.setVelocity(btnPair.body, { x: 0, y: -10 });
+                Body.setAngularVelocity(btnPair.body, 0.2);
+            }
+
+            setTimeout(() => {
+                const resetBtn = document.getElementById('reset-btn');
+                resetBtn.classList.remove('hidden');
+                setTimeout(() => resetBtn.classList.remove('opacity-0'), 50);
+            }, CONFIG.buttonDelay);
+        };
+
+        const resetGravity = () => {
+            if (!isGravityActive) return;
+
+            const { Composite } = Matter;
+            const bodies = bodiesDomPairs.map(p => p.body);
+            Composite.remove(engine.world, bodies);
+
+            bodiesDomPairs.forEach(({ element }) => {
+                element.classList.remove('physics-active');
+                element.style.transform = '';
+                element.style.width = '';
+                element.style.height = '';
+            });
+
+            bodiesDomPairs = [];
+            isGravityActive = false;
+
+            // Возвращаем скролл
+            document.body.style.overflow = '';
+            document.body.style.touchAction = '';
+
+            const resetBtn = document.getElementById('reset-btn');
+            resetBtn.classList.add('opacity-0');
+            setTimeout(() => resetBtn.classList.add('hidden'), 500);
+
+            const startBtn = document.getElementById('start-btn').querySelector('span');
+            startBtn.innerHTML = translations[currentLang].btn_start;
+            
+            const startBtnContainer = document.getElementById('start-btn');
+            startBtnContainer.classList.replace('bg-cyan-500', 'bg-cyan-500'); // Исправлено на правильный цвет (был bg-cyan-500)
+        };
+
+        window.onload = () => {
+            initPhysics();
+            
+            // Настройка основных кнопок с поддержкой touch
+            const startBtn = document.getElementById('start-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            
+            const handleStart = (e) => { 
+                if(e.type === 'touchstart') e.preventDefault(); // Предотвращаем двойное срабатывание
+                turnOnGravity(); 
+            };
+            const handleReset = (e) => { 
+                if(e.type === 'touchstart') e.preventDefault(); 
+                resetGravity(); 
+            };
+
+            startBtn.addEventListener('click', handleStart);
+            startBtn.addEventListener('touchstart', handleStart);
+            
+            resetBtn.addEventListener('click', handleReset);
+            resetBtn.addEventListener('touchstart', handleReset);
+
+            // Настройка кнопок языка с поддержкой touch
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                const lang = btn.getAttribute('data-lang');
+                const handleLang = (e) => {
+                    if(e.type === 'touchstart') e.preventDefault();
+                    setLanguage(lang);
+                };
+                btn.addEventListener('click', handleLang);
+                btn.addEventListener('touchstart', handleLang);
+            });
+        };
+
+        window.addEventListener('resize', () => {
+            if (isGravityActive) {
+                updateWalls();
+            }
+        });
+
+    </script>
+</body>
+</html>
