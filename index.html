@@ -140,6 +140,69 @@
     </footer>
 
     <script>
+        // --- АУДИО ДВИЖОК (Web Audio API) ---
+        const AudioEngine = {
+            ctx: null,
+            init: function() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            },
+            // Звук удара (синтезированный "стук")
+            playBump: function(velocity) {
+                if (!this.ctx) return;
+
+                // Ограничиваем громкость (нормализация скорости 0-20)
+                const volume = Math.min(velocity / 15, 1);
+                if (volume < 0.1) return; // Слишком тихие удары игнорируем
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                // Треугольная волна для глухого удара
+                osc.type = 'triangle';
+                
+                // Случайная высота тона для вариативности (60-100 Гц)
+                const freq = 60 + Math.random() * 40;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                // Быстрое падение тона
+                osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.1);
+
+                // Огибающая громкости (резкая атака, быстрый спад)
+                gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            },
+            // Звук "Выключения питания" (свип вниз)
+            playPowerDown: function() {
+                if (!this.ctx) return;
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, this.ctx.currentTime + 0.5);
+
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.5);
+            }
+        };
+
         // --- ЛОКАЛИЗАЦИЯ ---
         const translations = {
             ru: {
@@ -179,12 +242,10 @@
         let currentLang = 'ru';
 
         function setLanguage(lang) {
-            // Если гравитация активна, запрещаем смену языка, чтобы не ломать размеры блоков
             if (isGravityActive) return;
 
             currentLang = lang;
             
-            // Обновляем тексты
             document.querySelectorAll('[data-key]').forEach(el => {
                 const key = el.getAttribute('data-key');
                 if (translations[lang][key]) {
@@ -192,7 +253,6 @@
                 }
             });
 
-            // Обновляем стили кнопок языка
             document.querySelectorAll('.lang-btn').forEach(btn => {
                 const btnLang = btn.getAttribute('data-lang');
                 btn.classList.toggle('active', btnLang === lang);
@@ -212,15 +272,13 @@
         let isGravityActive = false;
         let bodiesDomPairs = []; 
         let worldWalls = {}; 
+        let lastSoundTime = 0; // Для троттлинга звуков
 
         const initPhysics = () => {
-            const { Engine, Runner, Bodies, Composite, Mouse, MouseConstraint, Events } = Matter;
+            const { Engine, Runner, Bodies, Composite, Mouse, MouseConstraint, Events, Vector } = Matter;
 
             engine = Engine.create();
             const world = engine.world;
-
-            // Стены инициализируем позже, при старте гравитации, чтобы учесть скролл
-            // updateWalls(); 
 
             const mouse = Mouse.create(document.body);
             mouseConstraint = MouseConstraint.create(engine, {
@@ -231,11 +289,29 @@
                 }
             });
             
-            // Разрешаем скролл колесиком (для масштаба если нужно), но блокируем тач-скролл стилями CSS
             mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
             mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
 
             Composite.add(world, mouseConstraint);
+
+            // Обработка столкновений для звука
+            Events.on(engine, 'collisionStart', (event) => {
+                // Ограничиваем количество звуков (не чаще раз в 50мс)
+                const now = Date.now();
+                if (now - lastSoundTime < 50) return;
+
+                event.pairs.forEach((pair) => {
+                    // Проверяем относительную скорость столкновения
+                    // В старых версиях Matter.js может не быть direct velocity property на pair,
+                    // поэтому считаем разницу векторов скоростей
+                    const speed = Vector.magnitude(Vector.sub(pair.bodyA.velocity, pair.bodyB.velocity));
+                    
+                    if (speed > 2) { // Порог скорости для звука
+                        AudioEngine.playBump(speed);
+                        lastSoundTime = now;
+                    }
+                });
+            });
 
             Events.on(engine, 'afterUpdate', () => {
                 bodiesDomPairs.forEach(({ body, element }) => {
@@ -258,19 +334,14 @@
             const height = window.innerHeight;
             const t = CONFIG.wallThickness;
             const offset = CONFIG.floorOffset;
-            // Учитываем текущую прокрутку страницы!
             const scrollY = window.scrollY;
 
             if (worldWalls.ground) {
                 Composite.remove(engine.world, [worldWalls.ground, worldWalls.left, worldWalls.right]);
             }
 
-            // Пол должен быть внизу ВИДИМОЙ области экрана + scrollY
             worldWalls.ground = Bodies.rectangle(width / 2, height + scrollY - offset + t / 2, width * 3, t, { isStatic: true });
-            
-            // Стены также сдвигаем по Y на scrollY
             const wallCenterY = (height / 2) + scrollY;
-            
             worldWalls.left = Bodies.rectangle(0 - t / 2, wallCenterY, t, height * 3, { isStatic: true });
             worldWalls.right = Bodies.rectangle(width + t / 2, wallCenterY, t, height * 3, { isStatic: true });
 
@@ -281,11 +352,13 @@
             if (isGravityActive) return;
             isGravityActive = true;
 
-            // Блокируем скролл и тач-действия, чтобы экран не дергался во время игры
+            // 1. Инициализируем аудио (нужен жест пользователя)
+            AudioEngine.init();
+            AudioEngine.playPowerDown();
+
             document.body.style.overflow = 'hidden';
             document.body.style.touchAction = 'none';
 
-            // Создаем стены вокруг ТЕКУЩЕЙ области просмотра
             updateWalls();
 
             const { Bodies, Composite, Body } = Matter;
@@ -298,7 +371,6 @@
                 el.style.width = `${rect.width}px`;
                 el.style.height = `${rect.height}px`;
 
-                // Корректируем координаты Y с учетом скролла
                 const x = rect.left + rect.width / 2;
                 const y = rect.top + scrollY + rect.height / 2;
 
@@ -318,7 +390,6 @@
             });
 
             const startBtn = document.getElementById('start-btn').querySelector('span');
-            // Обновляем текст кнопки через ключ
             startBtn.innerHTML = translations[currentLang].btn_oops;
             
             const startBtnContainer = document.getElementById('start-btn');
@@ -354,7 +425,6 @@
             bodiesDomPairs = [];
             isGravityActive = false;
 
-            // Возвращаем скролл
             document.body.style.overflow = '';
             document.body.style.touchAction = '';
 
@@ -366,18 +436,17 @@
             startBtn.innerHTML = translations[currentLang].btn_start;
             
             const startBtnContainer = document.getElementById('start-btn');
-            startBtnContainer.classList.replace('bg-cyan-500', 'bg-cyan-500'); // Исправлено на правильный цвет (был bg-cyan-500)
+            startBtnContainer.classList.replace('bg-pink-600', 'bg-cyan-500');
         };
 
         window.onload = () => {
             initPhysics();
             
-            // Настройка основных кнопок с поддержкой touch
             const startBtn = document.getElementById('start-btn');
             const resetBtn = document.getElementById('reset-btn');
             
             const handleStart = (e) => { 
-                if(e.type === 'touchstart') e.preventDefault(); // Предотвращаем двойное срабатывание
+                if(e.type === 'touchstart') e.preventDefault(); 
                 turnOnGravity(); 
             };
             const handleReset = (e) => { 
@@ -391,7 +460,6 @@
             resetBtn.addEventListener('click', handleReset);
             resetBtn.addEventListener('touchstart', handleReset);
 
-            // Настройка кнопок языка с поддержкой touch
             document.querySelectorAll('.lang-btn').forEach(btn => {
                 const lang = btn.getAttribute('data-lang');
                 const handleLang = (e) => {
